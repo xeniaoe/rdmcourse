@@ -1,0 +1,487 @@
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+import numpy as np
+import argparse
+import pandas as pd
+import os
+import atexit
+import sympy
+
+#to get help on the flags this script accepts either
+#a) call the script with the help flag: py .\ausertung_ta.py -h
+#or b) take a look at the handle flags section (can also be used to change some default values)
+
+################################################################################################################
+########################################### User input here ####################################################
+################################################################################################################
+
+fmol_name = "Chrysene"
+             #name of the molecule
+first_mol = {"name": fmol_name,
+             #refrence intensities for the search of the absorption maximum
+             "I0": np.array([-5.8023,-5.8431,-5.3964,-5.4017,-5.3365,-5.3489,-5.2209,-4.8904,-4.2977,-3.7741,-3.0507]),
+             #intensity for the search of the absorption maximum
+             "I": np.array([-4.83914,-4.1091,-4.1233,-3.9691,-3.6041,-3.3999,-3.5909,-3.9337,-3.7105,-3.3476,-2.7642]),
+             #wavelength for the search of the absorption maximum
+             "L": np.array([550, 560, 570, 580, 590, 600, 610, 620, 630, 640, 650]),
+             #filename or relative path to the file with the time resolved spectrum to determine the life times
+             "csv_path": "Chrysen_final_600_nm.csv",
+             #list of dictionaries containing information on how to fit the data
+             #expression: symbolic expression of the function to use to fit
+             #variables: names and initial values of the fit parameters in the expression
+             #color: color of the fit
+             #max_fit_iterations: maximum amount of iterations curve_fit will do to attempt to find the optimal parameters
+             "fit_functions": [{"expression": "E(t)=A*exp(-t/tau)+B", "variables": {"A": 0.5, "tau": 1, "B": 0}, "color":"#ff9900", "max_fit_iterations": 10000},
+                               {"expression": "E(t)=A1*exp(-t/tau1)+A2*exp(-t/tau2)+B", "variables": {"A1": 1, "A2": 1, "tau1": 1, "tau2": 1, "B": 0}, "color":"red", "max_fit_iterations": 10000}],
+             #The scipt will only fit the data if time>=0. Sometimes, there is still a value from the flash, so skip values will skip n values and shift
+             #the time by the corresponding time so that the first value is t=0
+             "skip_values": 2,
+             #caption of the table that will present the data for the absorption maximum
+             "caption": "Caption of the absorption maxima table",
+             #label for the wavelength
+             "lambda_label": "wavelength $\\lambda$ / nm",
+             #label for the wavelength dependant absorption
+             "absorption_label": "absorption $A(\\lambda)$ / a.u.",
+             #label for the Intensity
+             "I_label": "Intensity $I$ / V",
+             #label for the refrence intensity
+             "I0_label": "reference intensity $I_0$ / V",
+             #label for the extinction
+             "E_label": "extinction $E(t)$ / a.u.",
+             #label for the time
+             "time_label": "time $t$ / s",
+             #label for the time dependant intensity
+             "I(t)_label": "intensity $I(t)$ / V",
+             #settings, whether specifics of the data processings should occur
+             #skip maximum: skips plotting and printing the absoprtion maximum part
+             #skip fitting: skips plotting and printing the fit results and skips fitting in general
+             #skip plot raw data: skips plotting raw data
+             "settings": {"skip_maximum": False, "skip_fitting": False, "skip_raw_data_plotting": False},
+             #color which is used when plotting the measured data
+             "data_color": "steelblue"
+            }
+
+smol_name = "Coronene"
+second_mol = {"name": smol_name,
+              "I0": np.array([-3.0118, -4.2615, -4.7569, -5.4613, -6.7654, -4.9652,-5.4073, -7.0246, -8.2709, -7.8064, -7.3139]),
+              "I": np.array([-2.4367, -2.9813, -3.2158, -3.2863, -3.9037, -2.8544,-3.1989, -4.1215, -5.3010, -5.3777, -5.3827]),
+              "L": np.array([450,460,470,480,490,500,510,520,530,540,550]),
+              "csv_path": "Coronen_02.csv",
+              "fit_functions": [{"expression": "E(t)=A*exp(-t/tau)+B", "variables": {"A": 0.5, "tau": 1, "B": 0}, "color":"#ff9900", "max_fit_iterations": 10000},
+                               {"expression": "E(t)=A1*exp(-t/tau1)+A2*exp(-t/tau2)+B", "variables": {"A1": 1, "A2": 1, "tau1": 1, "tau2": 1, "B": 0}, "color":"red", "max_fit_iterations": 10000}],
+             "skip_values": 1,
+             "caption": "Caption of the absorption maxima table",
+             "lambda_label": "wavelength $\\lambda$ / nm",
+             "absorption_label": "absorption $A(\\lambda)$ / a.u.",
+             "I_label": "intensity $I$ / V",
+             "I0_label": "reference intensity $I_0$ / V",
+             "E_label": "extinction $E(t)$ / a.u.",
+             "time_label": "time $t$ / s",
+             "I(t)_label": "intensity $I(t)$ / V",
+             "settings": {"skip_maximum": False, "skip_fitting": False, "skip_raw_data_plotting": False},
+             "data_color": "steelblue"
+            }
+
+tmol_name = "Anthracen"
+third_mol = {"name": tmol_name,
+             "I0": np.array([-1.6937,-3.5465,-4.1097,-3.3650,-3.8946,-4.5217,-5.0159,-5.6752,-4.1062]),
+             "I": np.array([-1.5714,-3.0257,-3.4698,-2.9850,-2.5015,-3.9198,-4.7702,-5.5367,-3.9197]),
+             "L": np.array([420,430,440,450,460,470,480,490,500]),
+             "csv_path": "Anthracen_02.csv",
+             "fit_functions": [{"expression": "E(t)=A*exp(-t/tau)+B", "variables": {"A": 0.2025, "tau": 0.0269, "B": 0}, "color":"#ff9900", "max_fit_iterations": 10000},
+                               {"expression": "E(t)=A1*exp(-t/tau1)+A2*exp(-t/tau2)+B", "variables": {"A1": 0.14, "A2": 0.06, "tau1": 0.0269, "tau2": 0.0269, "B": 0}, "color":"red", "max_fit_iterations": 10000}],
+             "skip_values": 2,
+             "caption": "Caption of the absorption maxima table",
+             "lambda_label": "wavelength $\\lambda$ / nm",
+             "absorption_label": "absorption $A(\\lambda)$ / a.u.",
+             "I_label": "intensity $I$ / V",
+             "I0_label": "reference intensity $I_0$ / V",
+             "E_label": "extinction $E(t)$ / a.u.",
+             "time_label": "time $t$ / s",
+             "I(t)_label": "intensity $I(t)$ / V",
+             "settings": {"skip_maximum": False, "skip_fitting": False, "skip_raw_data_plotting": False},
+             "data_color": "steelblue"
+            }
+
+#all the dicts have to be put in this list in order to be processed
+mols_to_process = [first_mol, second_mol, third_mol]
+
+#where to find stuff in the script:
+#bottom of the sctipt:
+#process_maximum: function which does all the steps to process and plot the data for the absorption maximum part
+#process_fitting: function which does all the steps to process and plot the measured data with the fits
+#plot_raw_data: just plots the raw data
+
+################################################################################################################
+################################################################################################################
+################################################################################################################
+
+##handle flags
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-n", "--skip-show", help="skips showing every plot. You will see only text output", action="store_true")#use store_false to set default behaviour to not show any plots (usage of flag will then show plots)
+parser.add_argument("-p", "--show-plot", help="shows the n-th plot specified by the passed number. Starts at 0", type=int, metavar="n")
+parser.add_argument("-t", "--notex", help="disables latex output for plots", action="store_true")#use store_true to set default behaviour to not use latex (usage of flag will then use latex)
+parser.add_argument("-s", "--font-size", help="set the font size. Default: 15", type=float, default=15)
+parser.add_argument("-f", "--output-file", help="sets the path to the output file. Default: latex_friendly_output.tex", default="latex_friendly_output.tex")
+parser.add_argument("-w", "--width", help="sets the width of the plot. Default: 10", type=float, default=10)
+parser.add_argument("-hi", "--height", help="sets the height of the plot. Default: 6", type=float, default=6)
+parser.add_argument("-v", "--verbose", help="also shows output that is printed to output-file in console", action="store_true")
+args = parser.parse_args()
+
+##Settings, standars values
+
+plt.rcParams['text.usetex'] = args.notex
+plt.rcParams.update({'font.size': args.font_size})
+
+out_filename = args.output_file
+std_figsize = (args.width, args.height)
+
+basepath = os.path.dirname(os.path.realpath(__file__))
+out_file_path = os.path.join(basepath, out_filename)
+if os.path.isabs(out_filename):
+    out_file_path = out_filename
+_outfile_hanlde = open(os.path.join(basepath, out_filename), "w")
+
+sympy.init_printing()
+
+##define useful functions
+
+skip_until = args.show_plot if not args.show_plot == None else 0
+show_only = not args.show_plot == None
+
+def show():
+    global skip_until
+    skip_until -= 1
+    if not args.skip_show:
+        if show_only and skip_until == 0:
+            plt.show()
+            return
+        if show_only and not skip_until == 0:
+            plt.close("all")
+            return
+        if not show_only:
+            plt.show()
+            return
+    if args.skip_show:
+        plt.close("all")
+
+def out(*values: object, sep: str | None = " ", end: str | None = "\n", flush = False, print_console = False):
+    print(*values, sep=sep, end=end, flush=flush, file=_outfile_hanlde)
+    if args.verbose or print_console:
+        print(*values, sep=sep, end=end, flush=flush)
+
+def exit_handler():
+    if not _outfile_hanlde == None:
+        _outfile_hanlde.close()
+
+atexit.register(exit_handler)
+
+def move_caption_to_end(table: str):
+    table_lines = table.splitlines()
+    cap_idx = 0
+    for i, table_line in enumerate(table_lines):
+        if "\\caption" in table_line:
+            cap_idx = i
+            break
+    cap_line = table_lines.pop(cap_idx)
+    table_lines.insert(-1, cap_line)
+    return "\n".join(table_lines)
+
+def as_latex(df: pd.DataFrame, label="", precision=4, caption="Caption"):
+    columns = len(df.columns)
+    col_fmt = ""
+    caption = caption.replace("\n", "\\\\") #sanitize caption in put (a little bit)
+    for i in range(columns):
+        col_fmt += "c"
+    s = df.style.format(na_rep="-", precision=precision)
+    s = s.hide(axis="index")
+    s = s.set_caption(caption)
+    table = s.to_latex(column_format=col_fmt, position="H", position_float="centering", hrules=True, label="tab:"+label)
+    table = table.replace("\\midrule", "\\midrule\n\\midrule")
+    #table = move_caption_to_end(table)
+    return table
+
+def get_get(dict):
+    def _get(name):
+        return dict[name]
+    return _get
+
+def load_commented_csv(filename, comment_symbol="#", csv_symbol=",", decimal_separator=".", dtype=[float,float], has_header=True):
+    data = []
+    with open(filename) as f:
+        for line in f.readlines():
+            line = line.removesuffix("\n")
+            line = line.removesuffix("\r")
+            if line.startswith(comment_symbol):
+                continue
+            if line == "":
+                continue
+            fields = line.split(csv_symbol)
+            data.append(fields)
+    header = []
+    if has_header:
+        for head in data[0]:
+            header.append(head)
+        data.pop(0)
+    else:
+        for i in range(len(data[0])):
+            header.append(str(i))
+    csv_data = {}
+
+    for head in header:
+        csv_data[head] = []
+
+    for dataline in data:
+        for i, field in enumerate(dataline):
+            if dtype[i] == float:
+                field = field.replace(decimal_separator, ".")
+            csv_data[header[i]].append(dtype[i](field))
+    
+    for head in header:
+        csv_data[head] = np.array(csv_data[head])
+
+    return (csv_data, header)
+
+def get_I0(t, I):
+    sum = 0.0
+    count = 0
+    for t, I in zip(t, I):
+        if t < 0:
+            sum += I
+            count += 1
+            continue
+        break
+    return (sum/float(count))
+
+def get_r_squared(f, popt, xdata, ydata):
+    residuals = []
+    for x, y in zip(xdata, ydata):
+        residuals.append(y - f(x, *popt))
+    ss_res = np.sum(np.array(residuals)**2)
+    ss_tot = np.sum((ydata-np.mean(ydata))**2)
+    r_squared = 1 - (ss_res / ss_tot)
+    return r_squared
+
+def fit(func, x, y, points=1000, **kwargs):
+
+    popt, pcov = curve_fit(func, x, y, **kwargs)
+    stabw = np.sqrt(np.diag(pcov))
+
+    rsq = get_r_squared(func, popt, x, y)
+
+    xfit = np.linspace(x[0], x[len(x)-1], points)
+    yfit = func(xfit, *popt)
+
+    return xfit, yfit, popt, stabw, rsq
+
+class fitObject:
+    xfit: np.ndarray
+    yfit: np.ndarray
+
+    rsq: float
+
+    popt: dict[str, float]
+    stabw: dict[str, float]
+
+    func: str
+
+    std_plen = 5
+    std_vlen = 15
+    std_pmlen = 2
+    std_slen = 15
+
+    def set_std_plen(self, plen):
+        self.std_plen = plen
+    
+    def set_std_vlen(self, vlen):
+        self.std_vlen = vlen
+    
+    def set_std_pmlen(self, pmlen):
+        self.std_pmlen = pmlen
+    
+    def set_std_slen(self, slen):
+        self.std_slen = slen
+
+    def __init__(self, xfit, yfit, rsq, popt, stabw, variable_names, funcstr):
+        self.xfit = np.asarray(xfit)
+        self.yfit = np.asarray(yfit)
+        self.rsq = rsq
+        popt_dict = {}
+        stabw_dict = {}
+        for variable_name, optp, pstabw in zip(variable_names, popt, stabw):
+            popt_dict[variable_name] = optp
+            stabw_dict[variable_name] = pstabw
+        self.popt = popt_dict
+        self.stabw = stabw_dict
+        self.func = "$" + funcstr + "$"
+    
+    def __str__(self):
+        outstr = self.func + "\n"
+        lines = [["param", "value", "+-", "stabw"]]
+        for key in self.popt:
+            line = []
+            line.append(key)
+            line.append(str(self.popt[key]))
+            line.append("+-")
+            line.append(str(self.stabw[key]))
+            lines.append(line)
+        
+        plen = self.std_plen
+        vlen = self.std_vlen
+        pmlen = self.std_pmlen
+        slen = self.std_slen
+
+        for line in lines:
+            if len(line[0]) > plen:
+                plen = len(line[0])
+            if len(line[1]) > vlen:
+                vlen = len(line[1])
+            if len(line[3]) > slen:
+                slen = len(line[3])
+        
+        for line in lines:
+            for element, padlen in zip(line, [plen, vlen, pmlen, slen]):
+                padded_element = element + "".join([" " for _ in range(padlen-len(element))])
+                outstr = outstr + padded_element + " "
+            outstr = outstr + "\n"
+        outstr = outstr + "R^2: " + str(self.rsq) + "\n"
+        return outstr
+
+def symfit(symf: str, x, y, p0_dict: dict[str, float], points=1000, **kwargs):
+    equation_parts = symf.split("=")
+    variable = "x"
+    expression = equation_parts[0]
+    if len(equation_parts) == 2:
+        yexpr = equation_parts[0]
+        variable = yexpr.split("(")[1].split(")")[0]
+        expression = equation_parts[1]
+    free_parameters = sympy.Lambda(sympy.symbols(variable, seq=True), expression).free_symbols
+    free_str_parameters = str(free_parameters).replace(" ", "").removeprefix("{").removesuffix("}")
+    symbols = sympy.symbols(variable+","+free_str_parameters, seq=True)
+    f = sympy.lambdify(symbols, expression)
+    def wrapper(xvars, *params):
+        yvals = []
+        try:
+            for xvar in xvars:
+                yvals.append(float(f(*(xvar, *params))))
+        except TypeError:
+            return float(f(*(xvars, *params)))
+        return yvals
+    p0 = np.ones(len(free_parameters))
+    for i, free_param in enumerate([str(param) for param in free_parameters]):
+        p0[i] = p0_dict[free_param]
+    xfit, yfit, popt, stabw, rsq = fit(wrapper, x, y, points=points, p0=p0, **kwargs)
+    return fitObject(xfit, yfit, rsq, popt, stabw, [str(param) for param in free_parameters],
+                     sympy.latex(sympy.parse_expr(expression)))
+
+def get_data_for_positive_time(t, y, skip=0):
+    for i, _t in enumerate(t):
+        if _t > 0:
+            return t[i+skip:], y[i+skip:]
+    return [], []
+
+def str_fit_report(popt, stabw, rsq, parameter_descriptors, symbolic_fit_function):
+    out_str = symbolic_fit_function + "\n\n"
+    for opt_param, stabw_param, param_desc in zip(popt, stabw, parameter_descriptors):
+        out_str += param_desc + ": " + str(opt_param) + " +- " + str(stabw_param) + "\n"
+    out_str += "\nR^2: " + str(rsq)
+    return out_str
+
+## Analytic function definitions (replaced by sympy)
+
+def extinction(I, I0):
+    return np.log(np.divide(I0, I))
+
+def primitive_exp(x, A, tau, x0):
+    return np.multiply(A, np.exp(np.multiply(np.subtract(x, x0), -1/tau)))
+
+def simple_exp(x, A, tau, x0, B):
+    return np.add(primitive_exp(x, A, tau, x0), B)
+
+def double_exp(x, A1, tau1, x01, A2, tau2, x02, B):
+    return np.add(primitive_exp(x, A1, tau1, x01), simple_exp(x, A2, tau2, x02, B))
+
+def prod_exp(x, A, tau1, x01, tau2, x02, B):
+    return np.add(np.multiply(primitive_exp(x, A, tau1, x01), primitive_exp(x, 1, tau2, x02)), B)
+
+######## Start of data processing
+
+def process_maximum(mtp):
+    out(mtp["name"] + " maximum", print_console=True)
+    I0 = mtp["I0"]
+    I = mtp["I"]
+    L = mtp["L"]
+
+    abs = 1-I/I0
+
+    mol_to_process_labels = {"lambda":mtp["lambda_label"], "I0":mtp["I0_label"], "I":mtp["I_label"],
+                         "abs":mtp["absorption_label"], "name":mtp["name"]}
+    mtpl = get_get(mol_to_process_labels)
+    mtp_abs = pd.DataFrame({mtpl("lambda"): L, mtpl("I0"): I0, mtpl("I"): I, mtpl("abs"): abs})
+    out(as_latex(mtp_abs, label=mtpl("name")+"_maximum", caption=mtp["caption"]))
+    out()
+
+    #plot absorptions maxima
+    ax = plt.figure(figsize=std_figsize).add_subplot(1, 1, 1)
+
+    ax.scatter(mtp_abs[mtpl("lambda")], mtp_abs[mtpl("abs")], label=mtpl("name"))
+
+    ax.minorticks_on()
+    ax.set_xlabel(mtpl("lambda"))
+    ax.set_ylabel(mtpl("abs"))
+    ax.set_ylim(0, 1)
+    show()
+
+def process_fitting(mtp):
+    out(mtp["name"] + " fitting", print_console=True)
+    raw_mol_data, header = load_commented_csv(os.path.join(basepath, mtp["csv_path"]))
+
+    mol_data_labels = {"time": mtp["time_label"], "I0":mtp["I0_label"], "I":mtp["I_label"], "E": "$E(\\lambda)$", "name":mtp["name"]}
+    mtpl = get_get(mol_data_labels)
+    mol_data = {mtpl("time"): raw_mol_data[header[0]], mtpl("I0"): 0.0, mtpl("I"): raw_mol_data[header[1]], mtpl("E"): []}
+    mol_data[mtpl("I0")] = get_I0(mol_data[mtpl("time")], mol_data[mtpl("I")])
+    mol_data[mtpl("E")] = extinction(mol_data[mtpl("I")], mol_data[mtpl("I0")])
+
+    out(mtp["name"] + " I0: ", mol_data[mtpl("I0")])
+
+    ax = plt.figure(figsize=std_figsize).add_subplot(1, 1, 1)
+
+    t, E = get_data_for_positive_time(mol_data[mtpl("time")], mol_data[mtpl("E")], skip=mtp["skip_values"])
+    t = t-t[0]
+    ax.plot(t, E, mtp["data_color"])
+
+    for symfitobject in mtp["fit_functions"]:
+        fit_object = symfit(symfitobject["expression"], t, E, symfitobject["variables"], maxfev=symfitobject["max_fit_iterations"])
+        out(fit_object)
+        ax.plot(fit_object.xfit, fit_object.yfit, label=fit_object.func, c=symfitobject["color"])
+
+    ax.legend()
+    ax.set_ylim(0)
+    ax.set_xlabel(mtp["time_label"])
+    ax.set_ylabel(mtp["E_label"])
+    show()
+
+def plot_raw_data(mtp):
+    out("raw " + mtp["name"], print_console=True)
+    raw_mol_data, header = load_commented_csv(os.path.join(basepath, mtp["csv_path"]))
+    ax = plt.figure(figsize=std_figsize).add_subplot(1, 1, 1)
+    ax.plot(raw_mol_data[header[0]], raw_mol_data[header[1]], c=mtp["data_color"])
+    ax.set_ylabel(mtp["I(t)_label"])
+    ax.set_xlabel(mtp["time_label"])
+    show()
+
+for mol_to_process in mols_to_process:
+    mtp = mol_to_process
+    settings = mtp["settings"]
+
+    if not settings["skip_maximum"]:
+        process_maximum(mtp)
+    
+    if not settings["skip_fitting"]:
+        process_fitting(mtp)
+    
+    if not settings["skip_raw_data_plotting"]:
+        plot_raw_data(mtp)
+        
+        
